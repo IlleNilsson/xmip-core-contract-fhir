@@ -111,14 +111,6 @@ fn descriptor(id: &str) -> ContractDescriptor {
     }
 }
 
-fn issue(code: &str, message: &str, path: &str) -> ValidationIssue {
-    ValidationIssue {
-        code: code.to_string(),
-        message: message.to_string(),
-        path: Some(path.to_string()),
-    }
-}
-
 /// A FHIR id: up to 64 characters of letters, digits, `-` and `.`.
 fn is_id(text: &str) -> bool {
     !text.is_empty()
@@ -131,11 +123,15 @@ fn is_id(text: &str) -> bool {
 /// Well-formedness of one resource, recursing into a Bundle's entries.
 fn check_resource(value: &Value, path: &str, out: &mut Vec<ValidationIssue>) {
     let Value::Object(members) = value else {
-        out.push(issue("malformed", "a resource is a JSON object", path));
+        out.push(ValidationIssue::at(
+            "malformed",
+            "a resource is a JSON object",
+            path,
+        ));
         return;
     };
     let Some(kind) = members.get("resourceType").and_then(Value::as_str) else {
-        out.push(issue(
+        out.push(ValidationIssue::at(
             "malformed",
             "no resourceType",
             &format!("{path}/resourceType"),
@@ -145,7 +141,7 @@ fn check_resource(value: &Value, path: &str, out: &mut Vec<ValidationIssue>) {
     if let Some(id) = members.get("id")
         && !id.as_str().is_some_and(is_id)
     {
-        out.push(issue(
+        out.push(ValidationIssue::at(
             "malformed",
             "id is not a FHIR id",
             &format!("{path}/id"),
@@ -159,11 +155,15 @@ fn check_resource(value: &Value, path: &str, out: &mut Vec<ValidationIssue>) {
                     let at = format!("{path}/entry/{index}/resource");
                     match entry.get("resource") {
                         Some(resource) => check_resource(resource, &at, out),
-                        None => out.push(issue("malformed", "an entry without a resource", &at)),
+                        None => out.push(ValidationIssue::at(
+                            "malformed",
+                            "an entry without a resource",
+                            &at,
+                        )),
                     }
                 }
             }
-            Some(_) => out.push(issue(
+            Some(_) => out.push(ValidationIssue::at(
                 "malformed",
                 "entry is not an array",
                 &format!("{path}/entry"),
@@ -220,7 +220,7 @@ impl Contract for Fhir {
         let value: Value = match serde_json::from_slice(stream.bytes()) {
             Ok(value) => value,
             Err(error) => {
-                return Ok(result(vec![issue(
+                return Ok(ValidationResult::of(vec![ValidationIssue::at(
                     "malformed",
                     &format!("not valid JSON: {error}"),
                     &format!("line {} column {}", error.line(), error.column()),
@@ -234,7 +234,7 @@ impl Contract for Fhir {
                 .and_then(Value::as_str)
                 .unwrap_or("");
             if actual != wanted.name {
-                issues.push(issue(
+                issues.push(ValidationIssue::at(
                     "resource-type",
                     &format!("is {actual}, the contract is {}", wanted.name),
                     "/resourceType",
@@ -243,21 +243,14 @@ impl Contract for Fhir {
             if let (Some(release), Some(declared)) = (&wanted.release, declared_release(&value))
                 && declared != *release
             {
-                issues.push(issue(
+                issues.push(ValidationIssue::at(
                     "release",
                     &format!("declares {declared} through meta.profile, the contract is {release}"),
                     "/meta/profile",
                 ));
             }
         }
-        Ok(result(issues))
-    }
-}
-
-fn result(issues: Vec<ValidationIssue>) -> ValidationResult {
-    ValidationResult {
-        valid: issues.is_empty(),
-        issues,
+        Ok(ValidationResult::of(issues))
     }
 }
 
@@ -281,14 +274,10 @@ impl ContractFactory for FhirFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use xcore::StreamId;
+    use contract::fixture::stream_as;
 
     fn stream(text: &str) -> Stream {
-        Stream::new(
-            StreamId::new(1),
-            text.as_bytes().to_vec(),
-            Some("application/fhir+json".into()),
-        )
+        stream_as(text, Some("application/fhir+json"))
     }
 
     const PATIENT: &str = concat!(
@@ -348,9 +337,9 @@ mod tests {
     fn identifies_by_media_type_or_resource_type_key() {
         let fhir = Fhir::new();
         assert!(fhir.identify(&stream(PATIENT)).expect("identifies"));
-        let plain = Stream::new(StreamId::new(1), PATIENT.as_bytes().to_vec(), None);
+        let plain = stream_as(PATIENT, None);
         assert!(fhir.identify(&plain).expect("identifies"));
-        let other = Stream::new(StreamId::new(1), b"{\"a\":1}".to_vec(), None);
+        let other = stream_as(r#"{"a":1}"#, None);
         assert!(!fhir.identify(&other).expect("identifies"));
     }
 
