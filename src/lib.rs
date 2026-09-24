@@ -18,7 +18,7 @@
 //! Profiles, the `StructureDefinition`s a national base or an implementation
 //! guide adds, are the next layer here, bound the way a schema is.
 
-use contract::{
+use sdk::contract::{
     Contract, ContractDescriptor, ContractError, ContractFactory, ContractId, ValidationIssue,
     ValidationResult,
 };
