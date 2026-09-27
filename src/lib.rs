@@ -24,6 +24,7 @@ use contract::{
 };
 use serde_json::Value;
 use stream::Stream;
+use xcore::settings::{Applies, Kind, Presence, Setting, Settings};
 
 /// The bound resource type, with the release when named: `Patient`,
 /// `Patient:R4`, `Bundle:R5`.
@@ -263,6 +264,10 @@ impl ContractFactory for FhirFactory {
         "fhir"
     }
 
+    fn settings(&self) -> &'static Settings {
+        SETTINGS
+    }
+
     fn load(&self, reference: &str) -> Result<Box<dyn Contract>, ContractError> {
         if reference.trim().is_empty() {
             return Ok(Box::new(Fhir::new()));
@@ -270,6 +275,18 @@ impl ContractFactory for FhirFactory {
         Ok(Box::new(Fhir::of(ResourceType::parse(reference)?)))
     }
 }
+
+/// What a Location gives this contract (ADR-0064, amendment 2026-09-26).
+const SETTINGS: &Settings = &Settings {
+    technology: env!("CARGO_PKG_NAME"),
+    settings: &[Setting {
+        name: "reference",
+        kind: Kind::Text,
+        presence: Presence::Optional,
+        meaning: "The resource type, Patient or Patient:R4; left out, any resource holds.",
+        applies: Applies::Both,
+    }],
+};
 
 #[cfg(test)]
 mod tests {
@@ -353,5 +370,30 @@ mod tests {
             "fhir:Bundle:R5"
         );
         assert!(factory.load("Not a type").is_err());
+    }
+
+    #[test]
+    fn fhir_declares_its_settings_and_reads_through_them() {
+        assert!(SETTINGS.problems().is_empty(), "{:?}", SETTINGS.problems());
+        let given = |name: &str, value: &str| {
+            (
+                name.to_string(),
+                xcore::settings::Given::Text(value.to_string()),
+            )
+        };
+        assert!(FhirFactory.open(Applies::Both, &[]).is_ok(), "bare");
+        let bound = FhirFactory
+            .open(Applies::Receive, &[given("reference", "Patient:R4")])
+            .expect("bound");
+        assert!(bound.descriptor().id.0.contains("fhir:Patient"));
+        let refused = FhirFactory
+            .open(Applies::Send, &[given("unheard_of", "x")])
+            .err()
+            .expect("an unknown setting is refused");
+        assert!(
+            refused.message.contains("unheard_of"),
+            "{}",
+            refused.message
+        );
     }
 }
