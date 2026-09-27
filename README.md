@@ -2,6 +2,9 @@
 
 the FHIR content contract: a well-formed FHIR JSON resource always, Bundles checked through, of a bound resource type and release when a Location names one. Every FHIR release lives here; profiles are the next layer. A technology of [xmip-core-contract](https://github.com/IlleNilsson/xmip-core-contract).
 
+Each departure names where it is as a JSON Pointer (`/entry/1/resource/id`),
+spelled only when one is raised.
+
 ## Toolchain
 
 `rust-toolchain.toml` pins the toolchain for the whole estate. Do not change it

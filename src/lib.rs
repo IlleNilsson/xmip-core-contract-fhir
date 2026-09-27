@@ -18,6 +18,7 @@
 //! Profiles, the `StructureDefinition`s a national base or an implementation
 //! guide adds, are the next layer here, bound the way a schema is.
 
+use contract::place::Place;
 use contract::{
     Contract, ContractDescriptor, ContractError, ContractFactory, ContractId, ValidationIssue,
     ValidationResult,
@@ -121,13 +122,14 @@ fn is_id(text: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
 }
 
-/// Well-formedness of one resource, recursing into a Bundle's entries.
-fn check_resource(value: &Value, path: &str, out: &mut Vec<ValidationIssue>) {
+/// Well-formedness of one resource, recursing into a Bundle's entries. Each
+/// issue is placed by its JSON Pointer, spelled only when it is raised.
+fn check_resource(value: &Value, place: &Place<'_>, out: &mut Vec<ValidationIssue>) {
     let Value::Object(members) = value else {
         out.push(ValidationIssue::at(
             "malformed",
             "a resource is a JSON object",
-            path,
+            place.pointer(),
         ));
         return;
     };
@@ -135,7 +137,7 @@ fn check_resource(value: &Value, path: &str, out: &mut Vec<ValidationIssue>) {
         out.push(ValidationIssue::at(
             "malformed",
             "no resourceType",
-            &format!("{path}/resourceType"),
+            place.field("resourceType").pointer(),
         ));
         return;
     };
@@ -145,21 +147,23 @@ fn check_resource(value: &Value, path: &str, out: &mut Vec<ValidationIssue>) {
         out.push(ValidationIssue::at(
             "malformed",
             "id is not a FHIR id",
-            &format!("{path}/id"),
+            place.field("id").pointer(),
         ));
     }
     if kind == "Bundle" {
+        let entry = place.field("entry");
         match members.get("entry") {
             None => {}
             Some(Value::Array(entries)) => {
-                for (index, entry) in entries.iter().enumerate() {
-                    let at = format!("{path}/entry/{index}/resource");
-                    match entry.get("resource") {
-                        Some(resource) => check_resource(resource, &at, out),
+                for (index, item) in entries.iter().enumerate() {
+                    let at = entry.index(index);
+                    let resource = at.field("resource");
+                    match item.get("resource") {
+                        Some(inner) => check_resource(inner, &resource, out),
                         None => out.push(ValidationIssue::at(
                             "malformed",
                             "an entry without a resource",
-                            &at,
+                            resource.pointer(),
                         )),
                     }
                 }
@@ -167,7 +171,7 @@ fn check_resource(value: &Value, path: &str, out: &mut Vec<ValidationIssue>) {
             Some(_) => out.push(ValidationIssue::at(
                 "malformed",
                 "entry is not an array",
-                &format!("{path}/entry"),
+                entry.pointer(),
             )),
         }
     }
@@ -213,7 +217,7 @@ impl Contract for Fhir {
         }) {
             return Ok(true);
         }
-        Ok(std::str::from_utf8(stream.bytes()).is_ok_and(|t| t.contains("\"resourceType\"")))
+        Ok(stream.text().is_ok_and(|t| t.contains("\"resourceType\"")))
     }
 
     fn validate(&self, stream: &Stream) -> Result<ValidationResult, ContractError> {
@@ -223,12 +227,12 @@ impl Contract for Fhir {
             Err(error) => {
                 return Ok(ValidationResult::of(vec![ValidationIssue::at(
                     "malformed",
-                    &format!("not valid JSON: {error}"),
-                    &format!("line {} column {}", error.line(), error.column()),
+                    format!("not valid JSON: {error}"),
+                    format!("line {} column {}", error.line(), error.column()),
                 )]));
             }
         };
-        check_resource(&value, "", &mut issues);
+        check_resource(&value, &Place::Root, &mut issues);
         if let (Some(wanted), true) = (&self.resource_type, issues.is_empty()) {
             let actual = value
                 .get("resourceType")
@@ -237,7 +241,7 @@ impl Contract for Fhir {
             if actual != wanted.name {
                 issues.push(ValidationIssue::at(
                     "resource-type",
-                    &format!("is {actual}, the contract is {}", wanted.name),
+                    format!("is {actual}, the contract is {}", wanted.name),
                     "/resourceType",
                 ));
             }
@@ -246,7 +250,7 @@ impl Contract for Fhir {
             {
                 issues.push(ValidationIssue::at(
                     "release",
-                    &format!("declares {declared} through meta.profile, the contract is {release}"),
+                    format!("declares {declared} through meta.profile, the contract is {release}"),
                     "/meta/profile",
                 ));
             }
