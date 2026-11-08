@@ -217,12 +217,12 @@ impl Contract for Fhir {
         }) {
             return Ok(true);
         }
-        Ok(stream.text().is_ok_and(|t| t.contains("\"resourceType\"")))
+        Ok(contract::text(stream)?.is_ok_and(|t| t.contains("\"resourceType\"")))
     }
 
     fn validate(&self, stream: &Stream) -> Result<ValidationResult, ContractError> {
         let mut issues = Vec::new();
-        let value: Value = match serde_json::from_slice(stream.bytes()) {
+        let value: Value = match serde_json::from_slice(stream.load()?) {
             Ok(value) => value,
             Err(error) => {
                 return Ok(ValidationResult::of(vec![ValidationIssue::at(
