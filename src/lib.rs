@@ -17,24 +17,40 @@
 //!
 //! Profiles, the `StructureDefinition`s a national base or an implementation
 //! guide adds, are the next layer here, bound the way a schema is.
+//!
+//! **Built with its `declaration` feature alone** the crate is
+//! [`declaration`], what a Location naming it is configured with and the
+//! name a Validate step names it by, and none of the code above, which is
+//! behind the default feature: what the surfaces' library carries (ADR-0064,
+//! amendment 2026-11-26).
 
+#[cfg(feature = "declaration")]
+pub mod declaration;
+
+#[cfg(feature = "default")]
 use contract::place::Place;
+#[cfg(feature = "default")]
 use contract::{
     Contract, ContractDescriptor, ContractError, ContractFactory, ContractId, ValidationIssue,
     ValidationResult,
 };
+#[cfg(feature = "default")]
 use serde_json::Value;
+#[cfg(feature = "default")]
 use stream::Stream;
-use xcore::settings::{Applies, Kind, Presence, Setting, Settings};
+#[cfg(feature = "default")]
+use xcore::settings::Settings;
 
 /// The bound resource type, with the release when named: `Patient`,
 /// `Patient:R4`, `Bundle:R5`.
+#[cfg(feature = "default")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ResourceType {
     pub name: String,
     pub release: Option<String>,
 }
 
+#[cfg(feature = "default")]
 impl ResourceType {
     /// `Patient` or `Patient:R4`.
     ///
@@ -74,11 +90,13 @@ impl ResourceType {
 }
 
 /// The FHIR contract, bare or bound to a resource type.
+#[cfg(feature = "default")]
 pub struct Fhir {
     descriptor: ContractDescriptor,
     resource_type: Option<ResourceType>,
 }
 
+#[cfg(feature = "default")]
 impl Fhir {
     /// Any well-formed resource.
     #[must_use]
@@ -99,12 +117,14 @@ impl Fhir {
     }
 }
 
+#[cfg(feature = "default")]
 impl Default for Fhir {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(feature = "default")]
 fn descriptor(id: &str) -> ContractDescriptor {
     ContractDescriptor {
         id: ContractId(id.to_string()),
@@ -114,6 +134,7 @@ fn descriptor(id: &str) -> ContractDescriptor {
 }
 
 /// A FHIR id: up to 64 characters of letters, digits, `-` and `.`.
+#[cfg(feature = "default")]
 fn is_id(text: &str) -> bool {
     !text.is_empty()
         && text.len() <= 64
@@ -124,6 +145,7 @@ fn is_id(text: &str) -> bool {
 
 /// Well-formedness of one resource, recursing into a Bundle's entries. Each
 /// issue is placed by its JSON Pointer, spelled only when it is raised.
+#[cfg(feature = "default")]
 fn check_resource(value: &Value, place: &Place<'_>, out: &mut Vec<ValidationIssue>) {
     let Value::Object(members) = value else {
         out.push(ValidationIssue::at(
@@ -182,6 +204,7 @@ fn check_resource(value: &Value, place: &Place<'_>, out: &mut Vec<ValidationIssu
 /// `http://hl7.org/fhir/StructureDefinition/Patient` carries no release, so
 /// only `fhirVersion` in a `CapabilityStatement` or a profile with `|4.0.1`
 /// style version can say. This reads the latter.
+#[cfg(feature = "default")]
 fn declared_release(value: &Value) -> Option<String> {
     let profiles = value.pointer("/meta/profile")?.as_array()?;
     profiles
@@ -202,6 +225,7 @@ fn declared_release(value: &Value) -> Option<String> {
         })
 }
 
+#[cfg(feature = "default")]
 impl Contract for Fhir {
     fn descriptor(&self) -> &ContractDescriptor {
         &self.descriptor
@@ -261,15 +285,17 @@ impl Contract for Fhir {
 
 /// Loads the contract a Location names: an empty reference is the bare
 /// contract, anything else a resource type, `Patient` or `Patient:R4`.
+#[cfg(feature = "default")]
 pub struct FhirFactory;
 
+#[cfg(feature = "default")]
 impl ContractFactory for FhirFactory {
     fn technology(&self) -> &'static str {
-        "fhir"
+        declaration::NAME
     }
 
     fn settings(&self) -> &'static Settings {
-        SETTINGS
+        declaration::SETTINGS
     }
 
     fn load(&self, reference: &str) -> Result<Box<dyn Contract>, ContractError> {
@@ -279,18 +305,6 @@ impl ContractFactory for FhirFactory {
         Ok(Box::new(Fhir::of(ResourceType::parse(reference)?)))
     }
 }
-
-/// What a Location gives this contract (ADR-0064, amendment 2026-09-26).
-const SETTINGS: &Settings = &Settings {
-    technology: env!("CARGO_PKG_NAME"),
-    settings: &[Setting {
-        name: "reference",
-        kind: Kind::Text,
-        presence: Presence::Optional,
-        meaning: "The resource type, Patient or Patient:R4; left out, any resource holds.",
-        applies: Applies::Both,
-    }],
-};
 
 #[cfg(test)]
 mod tests {
@@ -378,6 +392,8 @@ mod tests {
 
     #[test]
     fn fhir_declares_its_settings_and_reads_through_them() {
+        use declaration::SETTINGS;
+        use xcore::settings::Applies;
         assert!(SETTINGS.problems().is_empty(), "{:?}", SETTINGS.problems());
         let given = |name: &str, value: &str| {
             (
